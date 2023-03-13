@@ -1,22 +1,15 @@
-import cv2
-import numpy as np
 import pyautogui
 import pyaudio
 import wave
+import time
+import os
+import subprocess
+from moviepy.editor import *
 
 # Set up the screen recording parameters
 SCREEN_SIZE = pyautogui.size()
-SCREEN_SIZE = (SCREEN_SIZE.width, SCREEN_SIZE.height)
-FPS = 30.0
-fourcc = cv2.VideoWriter_fourcc(*"XVID")
-out = cv2.VideoWriter("output.avi", fourcc, FPS, SCREEN_SIZE)
-
-# Set up the audio recording parameters
-CHUNK = 1024
-FORMAT = pyaudio.paInt16
-CHANNELS = 2
-RATE = 44100
-RECORD_SECONDS = 10
+FPS = 30
+VIDEO_NAME = "output.mp4"
 
 # Create a PyAudio object
 p = pyaudio.PyAudio()
@@ -26,6 +19,22 @@ num_devices = p.get_device_count()
 
 # Set up the list of devices to record from
 devices = range(num_devices)
+
+# Determine the number of channels supported by each device
+channels_list = []
+for device in devices:
+    device_info = p.get_device_info_by_index(device)
+    num_channels = device_info["maxInputChannels"]
+    channels_list.append(num_channels)
+
+# Set the number of channels to the minimum supported by all devices
+CHANNELS = min(channels_list)
+
+# Set up the audio recording parameters
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+RATE = 44100
+RECORD_SECONDS = 10
 
 # Set up the audio streams for each device
 streams = []
@@ -39,12 +48,14 @@ for device in devices:
     streams.append(stream)
 
 # Create a WAV file to save the recorded audio
-wf = wave.open("audio.wav", "wb")
+AUDIO_NAME = "output.wav"
+wf = wave.open(AUDIO_NAME, "wb")
 wf.setnchannels(CHANNELS)
 wf.setsampwidth(p.get_sample_size(FORMAT))
 wf.setframerate(RATE)
 
 # Start recording audio
+print("Recording audio...")
 frames = []
 for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
     # Read audio data from each stream
@@ -56,34 +67,38 @@ for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
     # Write the frame to the WAV file
     wf.writeframes(frame)
 
-    # Append the frame to the frames list
-    frames.append(frame)
-
 # Stop recording audio
 for stream in streams:
     stream.stop_stream()
     stream.close()
 p.terminate()
 wf.close()
+print("Finished recording audio.")
 
-# Start recording the screen
-while True:
-    # Take a screenshot
+# Start recording screen
+print("Recording screen...")
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+video_writer = cv2.VideoWriter(VIDEO_NAME, fourcc, FPS, SCREEN_SIZE)
+
+start_time = time.time()
+while (time.time() - start_time) < RECORD_SECONDS:
     img = pyautogui.screenshot()
-
-    # Convert the screenshot to a numpy array
     frame = np.array(img)
-
-    # Convert the color space from BGR to RGB
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    video_writer.write(frame)
 
-    # Write the frame to the video file
-    out.write(frame)
+# Stop recording screen
+video_writer.release()
+print("Finished recording screen.")
 
-    # Break the loop if the user presses the 'q' key
-    if cv2.waitKey(1) == ord("q"):
-        break
+# Combine the recorded video and audio into a single file
+video = VideoFileClip(VIDEO_NAME)
+audio = AudioFileClip(AUDIO_NAME)
+final_clip = video.set_audio(audio)
+final_clip.write_videofile("output_final.mp4")
 
-# Stop recording the screen
-out.release()
-cv2.destroyAllWindows()
+# Delete the temporary files
+os.remove(VIDEO_NAME)
+os.remove(AUDIO_NAME)
+
+print("Finished.")
