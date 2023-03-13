@@ -1,5 +1,15 @@
+import cv2
+import numpy as np
+import pyautogui
 import pyaudio
 import wave
+
+# Set up the screen recording parameters
+SCREEN_SIZE = pyautogui.size()
+SCREEN_SIZE = (SCREEN_SIZE.width, SCREEN_SIZE.height)
+FPS = 30.0
+fourcc = cv2.VideoWriter_fourcc(*"XVID")
+out = cv2.VideoWriter("output.avi", fourcc, FPS, SCREEN_SIZE)
 
 # Set up the audio recording parameters
 CHUNK = 1024
@@ -29,12 +39,12 @@ for device in devices:
     streams.append(stream)
 
 # Create a WAV file to save the recorded audio
-wf = wave.open("output.wav", "wb")
+wf = wave.open("audio.wav", "wb")
 wf.setnchannels(CHANNELS)
 wf.setsampwidth(p.get_sample_size(FORMAT))
 wf.setframerate(RATE)
 
-# Start recording
+# Start recording audio
 frames = []
 for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
     # Read audio data from each stream
@@ -46,9 +56,34 @@ for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
     # Write the frame to the WAV file
     wf.writeframes(frame)
 
-# Stop recording
+    # Append the frame to the frames list
+    frames.append(frame)
+
+# Stop recording audio
 for stream in streams:
     stream.stop_stream()
     stream.close()
 p.terminate()
 wf.close()
+
+# Start recording the screen
+while True:
+    # Take a screenshot
+    img = pyautogui.screenshot()
+
+    # Convert the screenshot to a numpy array
+    frame = np.array(img)
+
+    # Convert the color space from BGR to RGB
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Write the frame to the video file
+    out.write(frame)
+
+    # Break the loop if the user presses the 'q' key
+    if cv2.waitKey(1) == ord("q"):
+        break
+
+# Stop recording the screen
+out.release()
+cv2.destroyAllWindows()
