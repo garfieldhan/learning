@@ -1,41 +1,60 @@
+import pyaudio
+import wave
 import cv2
 import numpy as np
-import pyaudio
-import av
 import pyautogui
 
-# Set the video and audio parameters
-VIDEO_CODEC = 'mpeg4'
-VIDEO_FPS = 30
-VIDEO_WIDTH, VIDEO_HEIGHT = pyautogui.size()
+# Set up the audio recording parameters
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 2
+RATE = 44100
+RECORD_SECONDS = 10
 
-AUDIO_FORMAT = pyaudio.paInt16
-AUDIO_CHANNELS = 2
-AUDIO_RATE = 44100
-AUDIO_CHUNK_SIZE = 1024
+# Create a PyAudio object
+p = pyaudio.PyAudio()
 
-# Create the video writer object
-video_writer = cv2.VideoWriter('screen_recording.avi', cv2.VideoWriter_fourcc(*VIDEO_CODEC), VIDEO_FPS, (VIDEO_WIDTH, VIDEO_HEIGHT))
+# Open the microphone stream
+stream = p.open(format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                frames_per_buffer=CHUNK)
 
-# Create the audio recorder object
-audio_recorder = pyaudio.PyAudio()
-audio_stream = audio_recorder.open(format=AUDIO_FORMAT, channels=AUDIO_CHANNELS, rate=AUDIO_RATE, input=True, frames_per_buffer=AUDIO_CHUNK_SIZE)
+# Set up the video recording parameters
+screen_size = pyautogui.size()
+fourcc = cv2.VideoWriter_fourcc(*"XVID")
+out = cv2.VideoWriter("output.avi", fourcc, 20.0, screen_size)
 
-# Start the screen capture loop
-while True:
-    # Capture the screen content
-    screen_content = np.array(pyautogui.screenshot())
-    
-    # Encode the screen content and write it to the video file
-    video_writer.write(screen_content)
-    
-    # Record the audio stream and add it to the video file
-    audio_data = audio_stream.read(AUDIO_CHUNK_SIZE)
-    audio_frame = av.AudioFrame.from_ndarray(np.fromstring(audio_data, np.int16), format='s16', layout='stereo', rate=AUDIO_RATE)
-    video_writer.write(audio_frame)
-    
-# Release resources
-video_writer.release()
-audio_stream.stop_stream()
-audio_stream.close()
-audio_recorder.terminate()
+# Start recording
+frames = []
+for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+    # Read audio data from the stream
+    data = stream.read(CHUNK)
+    frames.append(data)
+
+    # Take a screenshot
+    img = pyautogui.screenshot()
+
+    # Convert the screenshot to a numpy array
+    frame = np.array(img)
+
+    # Convert the color format from BGR to RGB
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Write the frame to the video file
+    out.write(frame)
+
+# Stop recording
+stream.stop_stream()
+stream.close()
+p.terminate()
+out.release()
+
+# Save the audio file
+wf = wave.open("output.wav", "wb")
+wf.setnchannels(CHANNELS)
+wf.setsampwidth(p.get_sample_size(FORMAT))
+wf.setframerate(RATE)
+wf.writeframes(b"".join(frames))
+wf.close()
