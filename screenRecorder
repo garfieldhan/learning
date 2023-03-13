@@ -1,8 +1,5 @@
 import pyaudio
 import wave
-import cv2
-import numpy as np
-import pyautogui
 
 # Set up the audio recording parameters
 CHUNK = 1024
@@ -14,47 +11,44 @@ RECORD_SECONDS = 10
 # Create a PyAudio object
 p = pyaudio.PyAudio()
 
-# Open the microphone stream
-stream = p.open(format=FORMAT,
-                channels=CHANNELS,
-                rate=RATE,
-                input=True,
-                frames_per_buffer=CHUNK)
+# Get the number of audio devices
+num_devices = p.get_device_count()
 
-# Set up the video recording parameters
-screen_size = pyautogui.size()
-fourcc = cv2.VideoWriter_fourcc(*"XVID")
-out = cv2.VideoWriter("output.avi", fourcc, 20.0, screen_size)
+# Set up the list of devices to record from
+devices = range(num_devices)
 
-# Start recording
-frames = []
-for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-    # Read audio data from the stream
-    data = stream.read(CHUNK)
-    frames.append(data)
+# Set up the audio streams for each device
+streams = []
+for device in devices:
+    stream = p.open(format=FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    input=True,
+                    input_device_index=device,
+                    frames_per_buffer=CHUNK)
+    streams.append(stream)
 
-    # Take a screenshot
-    img = pyautogui.screenshot()
-
-    # Convert the screenshot to a numpy array
-    frame = np.array(img)
-
-    # Convert the color format from BGR to RGB
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    # Write the frame to the video file
-    out.write(frame)
-
-# Stop recording
-stream.stop_stream()
-stream.close()
-p.terminate()
-out.release()
-
-# Save the audio file
+# Create a WAV file to save the recorded audio
 wf = wave.open("output.wav", "wb")
 wf.setnchannels(CHANNELS)
 wf.setsampwidth(p.get_sample_size(FORMAT))
 wf.setframerate(RATE)
-wf.writeframes(b"".join(frames))
+
+# Start recording
+frames = []
+for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+    # Read audio data from each stream
+    data = [stream.read(CHUNK) for stream in streams]
+
+    # Combine the audio data into a single frame
+    frame = b"".join(data)
+
+    # Write the frame to the WAV file
+    wf.writeframes(frame)
+
+# Stop recording
+for stream in streams:
+    stream.stop_stream()
+    stream.close()
+p.terminate()
 wf.close()
