@@ -1,33 +1,15 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-          http://maven.apache.org/maven-v4_0_0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>com.example</groupId>
-    <artifactId>screen-recorder</artifactId>
-    <version>1.0.0</version>
-
-    <dependencies>
-        <!-- Java AWT library for capturing screen shots -->
-        <dependency>
-            <groupId>org.apache.servicemix.bundles</groupId>
-            <artifactId>org.apache.servicemix.bundles.java.awt</artifactId>
-            <version>1.7.0_51</version>
-        </dependency>
-
-        <!-- Java Sound library for recording audio -->
-        <dependency>
-            <groupId>javax.sound</groupId>
-            <artifactId>javax.sound.sampled</artifactId>
-            <version>1.0.0</version>
-        </dependency>
-
-        <!-- Xuggler library for encoding video and audio -->
-        <dependency>
-            <groupId>xuggle</groupId>
-            <artifactId>xuggle-xuggler</artifactId>
-            <version>5.4</version>
-        </dependency>
-    </dependencies>
-</project>
+<dependency>
+    <groupId>org.bytedeco</groupId>
+    <artifactId>javacv-platform</artifactId>
+    <version>1.5.6</version>
+</dependency>
+<dependency>
+    <groupId>org.bytedeco</groupId>
+    <artifactId>javacv</artifactId>
+    <version>1.5.6</version>
+</dependency>
+<dependency>
+    <groupId>org.bytedeco</groupId>
+    <artifactId>ffmpeg</artifactId>
+    <version>4.4</version>
+</dependency>
