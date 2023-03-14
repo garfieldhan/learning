@@ -1,92 +1,77 @@
-import org.bytedeco.javacv.*;
-import javax.sound.sampled.*;
-import java.awt.*;
-import java.awt.image.*;
-import java.io.*;
+import java.awt.Rectangle;
+import java.io.File;
+import javafx.application.Application;
+import javafx.scene.Scene;
+import javafx.scene.layout.StackPane;
+import javafx.stage.Screen;
+import javafx.stage.Stage;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.Mixer;
+import javax.sound.sampled.TargetDataLine;
+import org.xuggle.mediatool.IMediaWriter;
+import org.xuggle.mediatool.ToolFactory;
 
-public class ScreenRecorder {
+public class ScreenRecorder extends Application {
 
-    private static final int FRAME_RATE = 25;
-    private static final int SCREEN_WIDTH = (int) Toolkit.getDefaultToolkit().getScreenSize().getWidth();
-    private static final int SCREEN_HEIGHT = (int) Toolkit.getDefaultToolkit().getScreenSize().getHeight();
+  private Rectangle screenBounds;
+  private IMediaWriter mediaWriter;
+  private long startTime;
 
-    public static void main(String[] args) throws Exception {
-        // Create a new FFmpeg Frame Recorder for the video
-        FFmpegFrameRecorder recorder = new FFmpegFrameRecorder("output.mp4", SCREEN_WIDTH, SCREEN_HEIGHT, 2);
-        recorder.setFrameRate(FRAME_RATE);
-        recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
-        recorder.setFormat("mp4");
+  public static void main(String[] args) {
+    launch(args);
+  }
 
-        // Create a new audio target data line for capturing audio
-        AudioFormat audioFormat = new AudioFormat(44100.0f, 16, 2, true, true);
-        DataLine.Info info = new DataLine.Info(TargetDataLine.class, audioFormat);
-        TargetDataLine targetDataLine = (TargetDataLine) AudioSystem.getLine(info);
-        targetDataLine.open(audioFormat);
+  @Override
+  public void start(Stage primaryStage) {
+    // Get the screen size
+    screenBounds = new Rectangle((int) Screen.getPrimary().getBounds().getWidth(),
+                                  (int) Screen.getPrimary().getBounds().getHeight());
+
+    // Create a media writer for the output file
+    mediaWriter = ToolFactory.makeWriter("output.mp4");
+
+    // Find and open a target data line for recording audio
+    Mixer.Info[] mixerInfos = AudioSystem.getMixerInfo();
+    for (Mixer.Info info : mixerInfos) {
+      Mixer mixer = AudioSystem.getMixer(info);
+      if (mixer.getTargetLineInfo().length == 0) {
+        continue;
+      }
+      try {
+        TargetDataLine targetDataLine = (TargetDataLine) mixer.getLine(mixer.getTargetLineInfo()[0]);
+        targetDataLine.open();
         targetDataLine.start();
-
-        // Create a new audio frame recorder for the audio
-        FFmpegFrameRecorder audioRecorder = new FFmpegFrameRecorder("temp.aac", 2);
-        audioRecorder.setFormat("aac");
-        audioRecorder.setAudioCodec(avcodec.AV_CODEC_ID_AAC);
-        audioRecorder.setSampleRate(audioFormat.getSampleRate());
-        audioRecorder.setAudioChannels(audioFormat.getChannels());
-        audioRecorder.start();
-
-        // Start the screen capture
-        Robot robot = new Robot();
-        CanvasFrame canvasFrame = new CanvasFrame("Screen Recorder");
-        canvasFrame.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
-        canvasFrame.setCanvasSize(SCREEN_WIDTH, SCREEN_HEIGHT);
-        Frame capturedFrame = null;
-        long startTime = 0;
-        long audioStartTime = 0;
-
-        // Loop over each frame of the screen capture
-        while (canvasFrame.isVisible()) {
-            // Capture the current screen as a BufferedImage
-            BufferedImage image = robot.createScreenCapture(new Rectangle(SCREEN_WIDTH, SCREEN_HEIGHT));
-
-            // Create a new JavaCV Frame from the BufferedImage
-            Java2DFrameConverter converter = new Java2DFrameConverter();
-            Frame frame = converter.getFrame(image);
-
-            // Write the frame to the video recorder
-            if (capturedFrame == null) {
-                capturedFrame = new Frame(frame.imageWidth, frame.imageHeight, frame.imageDepth, frame.imageChannels);
-                recorder.start();
-                startTime = System.nanoTime();
-                audioStartTime = System.nanoTime();
-            }
-            recorder.record(frame, (System.nanoTime() - startTime) / 1000000);
-
-            // Capture audio from the target data line
-            byte[] audioData = new byte[targetDataLine.getBufferSize() / 5];
-            int bytesRead = targetDataLine.read(audioData, 0, audioData.length);
-            if (bytesRead > 0) {
-                audioRecorder.recordSamples(audioData, 0, bytesRead, (System.nanoTime() - audioStartTime) / 1000);
-            }
-        }
-
-        // Stop and release resources for the audio recorder
-        audioRecorder.stop();
-        audioRecorder.release();
-
-        // Create a new FFmpegFrameGrabber for the audio file
-        FFmpegFrameGrabber audioGrabber = new FFmpegFrameGrabber("temp.aac");
-        audioGrabber.start();
-
-    // Loop over each audio frame and write it to the video recorder
-    Frame audioFrame;
-    while ((audioFrame = audioGrabber.grabFrame()) != null) {
-        recorder.record(audioFrame);
+        DataLine.Info targetInfo = (DataLine.Info) targetDataLine.getLineInfo();
+        mediaWriter.addAudioStream(0, 0, targetInfo.getChannels(), (int) targetInfo.getSampleRate());
+      } catch (Exception e) {
+        // Ignore any errors while opening or starting the data line
+      }
     }
 
-    // Stop and release resources for the video recorder
-    recorder.stop();
-    recorder.release();
+    // Set up a scene to capture the screen
+    StackPane root = new StackPane();
+    primaryStage.setScene(new Scene(root, screenBounds.getWidth(), screenBounds.getHeight()));
+    primaryStage.show();
 
-    // Delete the temporary audio file
-    File tempAudioFile = new File("temp.aac");
-    tempAudioFile.delete();
+    // Start the recording
+    startTime = System.nanoTime();
+    new Thread(this::captureScreen).start();
+  }
+
+  private void captureScreen() {
+    while (true) {
+      // Take a screenshot
+      mediaWriter.encodeVideo(0, ScreenCapture.getScreenCapture(screenBounds));
+
+      // Check if recording time has elapsed
+      if (System.nanoTime() - startTime > 60000000000L) { // 60 seconds
+        break;
+      }
+    }
+
+    // Close the media writer and exit the application
+    mediaWriter.close();
+    System.exit(0);
+  }
 }
-
