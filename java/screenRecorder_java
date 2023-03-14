@@ -1,0 +1,116 @@
+import java.awt.AWTException;
+import java.awt.Dimension;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Toolkit;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.Date;
+
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.Mixer;
+import javax.sound.sampled.Mixer.Info;
+import javax.sound.sampled.TargetDataLine;
+
+import com.xuggle.mediatool.IMediaWriter;
+import com.xuggle.mediatool.ToolFactory;
+import com.xuggle.xuggler.ICodec;
+import com.xuggle.xuggler.IContainer;
+import com.xuggle.xuggler.IStream;
+import com.xuggle.xuggler.IStreamCoder;
+import com.xuggle.xuggler.IVideoPicture;
+
+public class ScreenRecorder {
+    private static final int FRAME_RATE = 30;
+    private static final int SECONDS_TO_RUN_FOR = 10;
+    private static final String OUTPUT_FILENAME = "output.mp4";
+    private static final int SCREEN_WIDTH = (int) Toolkit.getDefaultToolkit().getScreenSize().getWidth();
+    private static final int SCREEN_HEIGHT = (int) Toolkit.getDefaultToolkit().getScreenSize().getHeight();
+
+    public static void main(String[] args) {
+        // Initialize the video writer
+        IMediaWriter writer = ToolFactory.makeWriter(OUTPUT_FILENAME);
+        writer.addVideoStream(0, 0, ICodec.ID.CODEC_ID_MPEG4, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+        // Get the default audio device and start recording
+        Mixer.Info[] mixerInfo = AudioSystem.getMixerInfo();
+        TargetDataLine line = null;
+        for (int i = 0; i < mixerInfo.length; i++) {
+            Mixer mixer = AudioSystem.getMixer(mixerInfo[i]);
+            if (mixer.getLineInfo().length != 0 && mixer.getLineInfo()[0] instanceof DataLine.Info) {
+                DataLine.Info info = (DataLine.Info) mixer.getLineInfo()[0];
+                if (info.getMaxBufferSize() > 0 && info.getMaxSampleRate() > 0) {
+                    line = (TargetDataLine) mixer.getLine(info);
+                    line.open(info);
+                    line.start();
+                    break;
+                }
+            }
+        }
+
+        // Initialize the audio writer
+        IContainer container = IContainer.make();
+        int audioStreamId = 1;
+        IStream audioStream = container.addNewStream(audioStreamId);
+        IStreamCoder audioCoder = audioStream.getStreamCoder();
+        audioCoder.setSampleRate(44100);
+        audioCoder.setChannels(2);
+        audioCoder.setBitRate(128000);
+        audioCoder.setCodec(ID.CODEC_ID_MP3);
+        audioCoder.setCodec(ID.CODEC_ID_AAC);
+        audioCoder.setCodec(ID.CODEC_ID_PCM_S16LE);
+        audioCoder.setCodec(ID.CODEC_ID_VORBIS);
+        audioCoder.setCodec(ID.CODEC_ID_FLAC);
+        audioCoder.setCodec(ID.CODEC_ID_AC3);
+        audioCoder.setCodec(ID.CODEC_ID_OPUS);
+        audioCoder.setCodec(ID.CODEC_ID_NONE);
+        audioCoder.open();
+        container.writeHeader();
+
+        // Record the screen and audio for SECONDS_TO_RUN_FOR seconds
+        long startTime = System.nanoTime();
+        long currentTime = System.nanoTime();
+        while ((currentTime - startTime) / 1000000000 < SECONDS_TO_RUN_FOR) {
+            BufferedImage screenshot = getScreenshot();
+            writer.encodeVideo(0, screenshot, System.nanoTime() - startTime, java.util.concurrent.TimeUnit.NANOSECONDS);
+                    byte[] audioData = new byte[line.getBufferSize() / 5];
+        int numBytesRead = line.read(audioData, 0, audioData.length);
+        writer.encodeAudio(0, audioData, System.nanoTime() - startTime, java.util.concurrent.TimeUnit.NANOSECONDS);
+
+        IVideoPicture videoPicture = IVideoPicture.make(
+                writer.getStreamMetadata(0).getVideoCodecMetadata().getCodec(),
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT
+        );
+        videoPicture.setTimeStamp(System.nanoTime() - startTime);
+        videoPicture.setQuality(0);
+
+        IStreamCoder audioCoder = writer.getContainer().getStream(audioStreamId).getStreamCoder();
+        audioCoder.encodeAudio(audioStreamId, audioData, 0, numBytesRead, System.nanoTime() - startTime, java.util.concurrent.TimeUnit.NANOSECONDS);
+
+        currentTime = System.nanoTime();
+    }
+
+    // Close the audio writer and release resources
+    line.stop();
+    line.close();
+    audioCoder.close();
+    container.writeTrailer();
+    container.close();
+
+    // Close the video writer and release resources
+    writer.close();
+}
+
+private static BufferedImage getScreenshot() {
+    try {
+        Robot robot = new Robot();
+        Rectangle captureSize = new Rectangle(SCREEN_WIDTH, SCREEN_HEIGHT);
+        return robot.createScreenCapture(captureSize);
+    } catch (AWTException e) {
+        e.printStackTrace();
+        return null;
+    }
+}
+
