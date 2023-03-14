@@ -1,77 +1,76 @@
-import java.awt.Rectangle;
-import java.io.File;
-import javafx.application.Application;
-import javafx.scene.Scene;
-import javafx.scene.layout.StackPane;
-import javafx.stage.Screen;
-import javafx.stage.Stage;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.Mixer;
-import javax.sound.sampled.TargetDataLine;
-import org.xuggle.mediatool.IMediaWriter;
-import org.xuggle.mediatool.ToolFactory;
+import org.bytedeco.ffmpeg.global.avcodec;
+import org.bytedeco.ffmpeg.global.avutil;
+import org.bytedeco.javacv.FFmpegFrameRecorder;
+import org.bytedeco.javacv.Frame;
+import org.bytedeco.javacv.Java2DFrameConverter;
+import org.bytedeco.javacv.OpenCVFrameGrabber;
 
-public class ScreenRecorder extends Application {
+import javax.sound.sampled.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.nio.ByteBuffer;
 
-  private Rectangle screenBounds;
-  private IMediaWriter mediaWriter;
-  private long startTime;
+public class ScreenRecorder {
 
-  public static void main(String[] args) {
-    launch(args);
-  }
+    private static final String OUTPUT_FILE = "output.mp4";
+    private static final double FRAME_RATE = 30;
+    private static final int AUDIO_SAMPLE_RATE = 44100;
+    private static final int AUDIO_CHANNELS = 2;
+    private static final int AUDIO_BUFFER_SIZE = 4096;
 
-  @Override
-  public void start(Stage primaryStage) {
-    // Get the screen size
-    screenBounds = new Rectangle((int) Screen.getPrimary().getBounds().getWidth(),
-                                  (int) Screen.getPrimary().getBounds().getHeight());
+    private Rectangle screenBounds;
+    private Robot robot;
+    private FFmpegFrameRecorder recorder;
+    private AudioFormat audioFormat;
+    private TargetDataLine audioLine;
 
-    // Create a media writer for the output file
-    mediaWriter = ToolFactory.makeWriter("output.mp4");
-
-    // Find and open a target data line for recording audio
-    Mixer.Info[] mixerInfos = AudioSystem.getMixerInfo();
-    for (Mixer.Info info : mixerInfos) {
-      Mixer mixer = AudioSystem.getMixer(info);
-      if (mixer.getTargetLineInfo().length == 0) {
-        continue;
-      }
-      try {
-        TargetDataLine targetDataLine = (TargetDataLine) mixer.getLine(mixer.getTargetLineInfo()[0]);
-        targetDataLine.open();
-        targetDataLine.start();
-        DataLine.Info targetInfo = (DataLine.Info) targetDataLine.getLineInfo();
-        mediaWriter.addAudioStream(0, 0, targetInfo.getChannels(), (int) targetInfo.getSampleRate());
-      } catch (Exception e) {
-        // Ignore any errors while opening or starting the data line
-      }
+    public ScreenRecorder() throws AWTException {
+        screenBounds = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+        robot = new Robot();
+        audioFormat = new AudioFormat(AUDIO_SAMPLE_RATE, 16, AUDIO_CHANNELS, true, false);
+        audioLine = null;
     }
 
-    // Set up a scene to capture the screen
-    StackPane root = new StackPane();
-    primaryStage.setScene(new Scene(root, screenBounds.getWidth(), screenBounds.getHeight()));
-    primaryStage.show();
+    public void startRecording() throws Exception {
+        recorder = new FFmpegFrameRecorder(OUTPUT_FILE, (int) screenBounds.getWidth(), (int) screenBounds.getHeight(), AUDIO_CHANNELS);
+        recorder.setVideoCodec(avcodec.AV_CODEC_ID_MPEG4);
+        recorder.setFormat("mp4");
+        recorder.setFrameRate(FRAME_RATE);
+        recorder.setAudioCodec(avcodec.AV_CODEC_ID_AAC);
+        recorder.setSampleRate(AUDIO_SAMPLE_RATE);
+        recorder.setAudioChannels(AUDIO_CHANNELS);
+        recorder.setAudioOption("crf", "0");
+        recorder.start();
 
-    // Start the recording
-    startTime = System.nanoTime();
-    new Thread(this::captureScreen).start();
-  }
+        AudioFormat audioFormat = new AudioFormat(AUDIO_SAMPLE_RATE, 16, AUDIO_CHANNELS, true, false);
+        DataLine.Info info = new DataLine.Info(TargetDataLine.class, audioFormat);
+        audioLine = (TargetDataLine) AudioSystem.getLine(info);
+        audioLine.open(audioFormat, AUDIO_BUFFER_SIZE);
+        audioLine.start();
 
-  private void captureScreen() {
-    while (true) {
-      // Take a screenshot
-      mediaWriter.encodeVideo(0, ScreenCapture.getScreenCapture(screenBounds));
+        new Thread(() -> {
+            byte[] audioBuffer = new byte[AUDIO_BUFFER_SIZE];
+            while (true) {
+                int bytesRead = audioLine.read(audioBuffer, 0, audioBuffer.length);
+                if (bytesRead < 0) {
+                    break;
+                }
+                recorder.recordSamples(ByteBuffer.wrap(audioBuffer, 0, bytesRead));
+            }
+        }).start();
 
-      // Check if recording time has elapsed
-      if (System.nanoTime() - startTime > 60000000000L) { // 60 seconds
-        break;
-      }
+        Java2DFrameConverter converter = new Java2DFrameConverter();
+        while (true) {
+            BufferedImage image = robot.createScreenCapture(screenBounds);
+            Frame frame = converter.convert(image);
+            recorder.record(frame);
+        }
     }
 
-    // Close the media writer and exit the application
-    mediaWriter.close();
-    System.exit(0);
-  }
+    public void stopRecording() throws Exception {
+        audioLine.stop();
+        audioLine.close();
+        recorder.stop();
+        recorder.release();
+    }
 }
