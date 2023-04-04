@@ -1,5 +1,8 @@
 import pyaudio
 import wave
+import threading
+import sys
+import os
 
 # Audio settings
 CHUNK = 1024
@@ -26,13 +29,36 @@ system_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
 mic_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
                     input_device_index=mic_device_index, frames_per_buffer=CHUNK)
 
+# Initialize the event that will be used to stop the recording
+stop_event = threading.Event()
+
+def keyboard_interrupt_handler(signal, frame):
+    # This function will be called when a keyboard interrupt is detected
+    print("Keyboard interrupt detected. Stopping recording...")
+    stop_event.set()
+
+# Register the keyboard interrupt handler
+if os.name == "nt":
+    import msvcrt
+    import signal
+    signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+else:
+    import signal
+    signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+
+print("Press 'ESC' to stop recording and exit")
+
 # Start recording
 frames = []
-for i in range(0, int(RATE / CHUNK * 10)):
+while not stop_event.is_set():
     system_data = system_stream.read(CHUNK)
     mic_data = mic_stream.read(CHUNK)
     frames.append(system_data)
     frames.append(mic_data)
+    if msvcrt.kbhit() and ord(msvcrt.getch()) == 27:
+        # Check if the 'ESC' key has been pressed
+        print("ESC key detected. Stopping recording...")
+        stop_event.set()
 
 # Stop streams
 system_stream.stop_stream()
